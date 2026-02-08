@@ -11,7 +11,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: python-app
-  EKS_CLUSTER_NAME: demo-eks   # ⚠️ replace if your cluster name is different
+  EKS_CLUSTER_NAME: demo-eks
 
 jobs:
   deploy:
@@ -33,9 +33,11 @@ jobs:
     - name: Build and Push Docker Image
       run: |
         IMAGE_TAG=${{ github.sha }}
+
         docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
         docker tag $ECR_REPOSITORY:$IMAGE_TAG \
           010438510645.dkr.ecr.${AWS_REGION}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+
         docker push \
           010438510645.dkr.ecr.${AWS_REGION}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
 
@@ -47,12 +49,4 @@ jobs:
 
         kubectl set image deployment/python-app \
           python-app=010438510645.dkr.ecr.${AWS_REGION}.amazonaws.com/$ECR_REPOSITORY:${{ github.sha }}
-name: Deploy to EKS
-on:
-  push:
-    branches: [ "main" ]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
+
