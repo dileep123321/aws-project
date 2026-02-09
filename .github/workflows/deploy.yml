@@ -13,6 +13,8 @@ env:
   ECR_REPOSITORY: python-app
   EKS_CLUSTER_NAME: demo-eks
   IMAGE_TAG: ${{ github.sha }}
+  IMAGE_NAME: python-app
+
 
 jobs:
   deploy:
@@ -62,7 +64,7 @@ jobs:
     - name: Scan Image with Trivy
       uses: aquasecurity/trivy-action@0.20.0
       with:
-        image-ref: ${{ env.ECR_REPOSITORY }} :${{ env.IMAGE_TAG }}
+        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         severity: HIGH,CRITICAL
         exit-code: 0
 
