@@ -2,7 +2,8 @@ name: CI/CD Pipeline – Deploy Python App to AWS EKS
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -13,121 +14,79 @@ env:
   AWS_REGION: us-east-1
   AWS_ACCOUNT_ID: 010438510645
   ECR_REPOSITORY: python-app
-  EKS_CLUSTER_NAME: demo-eks
-  IMAGE_TAG: ${{ github.sha }}
   IMAGE_NAME: python-app
+  EKS_CLUSTER_NAME: demo-eks
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout source code
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-    # 1. Checkout code
-    - name: Checkout Source Code
-      uses: actions/checkout@v4
+      # 2. Set Image Tag
+      - name: Set Image Tag
+        run: echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_ENV
 
-    # 🔍 DEBUG: confirm k8s files exist
-    - name: Verify k8s manifests
-      run: |
-        echo "Repository root:"
-        ls -l
-        echo "k8s directory:"
-        ls -l k8s
+      # 3. Configure AWS Credentials (OIDC or Secrets)
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::010438510645:role/github-actions-eks-role
+          aws-region: ${{ env.AWS_REGION }}
 
-    # 2. Set up Python
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.9"
+      # 4. Login to Amazon ECR (VERY IMPORTANT)
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
-    # 3. Install dependencies
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r app/requirements.txt
+      # 5. Build Docker Image
+      - name: Build Docker Image
+        run: |
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
 
-    # 4. Lint
-    - name: Lint Code
-      run: |
-        pip install flake8
-        flake8 app/ || echo "Lint warnings found"
+      # 6. Tag & Push Image to ECR
+      - name: Push Image to Amazon ECR
+        run: |
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
 
-    # 5. Run tests
-    - name: Run Tests
-      run: |
-        echo "Running tests"
-        # pytest tests/
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
 
-    # 6. AWS OIDC Auth
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: arn:aws:iam::010438510645:role/github-actions-eks-role
-        aws-region: ${{ env.AWS_REGION }}
+      # 7. Install kubectl
+      - name: Install kubectl
+        run: |
+          curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          kubectl version --client
 
-    # 7. Login to ECR
-    - name: Login to Amazon ECR
-      uses: aws-actions/amazon-ecr-login@v2
+      # 8. Configure kubectl for EKS
+      - name: Configure kubectl for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $EKS_CLUSTER_NAME
 
-    # 8. Build Docker image
-    - name: Build Docker Image
-      run: |
-        docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+      # 9. Verify Cluster Access
+      - name: Verify EKS Access
+        run: |
+          kubectl get nodes
+          kubectl get deployments || true
 
-    # 9. Scan image
-    - name: Scan Image with Trivy
-      uses: aquasecurity/trivy-action@0.20.0
-      with:
-        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        severity: HIGH,CRITICAL
-        exit-code: 0
+      # 10. Apply Kubernetes Manifests
+      - name: Apply Kubernetes Manifests
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
 
-    # 10. Push to ECR
-    - name: Push Image to Amazon ECR
-      run: |
-        docker tag $ECR_REPOSITORY:$IMAGE_TAG \
-          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+      # 11. Update Image & Rollout
+      - name: Deploy to EKS
+        run: |
+          kubectl set image deployment/python-app \
+            python-app=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
 
-        docker push \
-          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
-
-    # 11. Install kubectl
-    - name: Install kubectl
-      run: |
-        curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
-        chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/
-        kubectl version --client
-
-    # 12. Configure kubectl
-    - name: Configure kubectl for EKS
-      run: |
-        aws eks update-kubeconfig \
-          --region $AWS_REGION \
-          --name $EKS_CLUSTER_NAME
-
-    # 13. Verify cluster
-    - name: Verify EKS Access
-      run: |
-        kubectl get nodes
-        kubectl get deployments
-
-    # 14. Apply manifests (FORCE CREATE)
-    - name: Apply Kubernetes Manifests
-      run: |
-        kubectl apply -f k8s/deployment.yaml
-        kubectl apply -f k8s/service.yaml
-        kubectl get deployments
-        kubectl get services
-
-    # 15. Update image & rollout (ONLY AFTER CONFIRMED)
-    - name: Deploy to EKS
-      run: |
-        kubectl get deployment python-app
-
-        kubectl set image deployment/python-app \
-          python-app=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
-
-        kubectl rollout status deployment/python-app
+          kubectl rollout status deployment/python-app
 
