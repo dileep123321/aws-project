@@ -62,7 +62,7 @@ jobs:
     - name: Scan Image with Trivy
       uses: aquasecurity/trivy-action@0.20.0
       with:
-        image-ref: $ECR_REPOSITORY:${{ env.IMAGE_TAG }}
+        image-ref: ${{ env.ECR_REPOSITORY }} :${{ env.IMAGE_TAG }}
         severity: HIGH,CRITICAL
         exit-code: 0
 
