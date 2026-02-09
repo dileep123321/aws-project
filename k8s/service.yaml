@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: python-app-service
 spec:
+  type: LoadBalancer
   selector:
     app: python-app
   ports:
