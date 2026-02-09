@@ -14,6 +14,7 @@ spec:
     spec:
       containers:
       - name: python-app
-        image: nginx
+        image: 010438510645.dkr.ecr.us-east-1.amazonaws.com/python-app:latest
         ports:
         - containerPort: 5000
+
