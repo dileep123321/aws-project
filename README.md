@@ -23,3 +23,4 @@ kubectl get svc python-app-service
 
 ## Cleanup
 eksctl delete cluster --name demo-eks --region us-east-1
+
